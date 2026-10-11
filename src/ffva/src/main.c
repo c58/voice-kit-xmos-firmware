@@ -158,6 +158,15 @@ int audio_pipeline_output(void *output_app_data,
     /* I2S expects sample channel format */
     int32_t tmp[appconfAUDIO_PIPELINE_FRAME_ADVANCE][appconfAUDIO_PIPELINE_CHANNELS];
     int32_t *tmpptr = (int32_t *)output_audio_frames;
+
+    /* Pre-AGC pipeline stages (raw mic, AEC, IC, NS) carry samples at s24
+     * scale: the mic decimator produces 24-bit right-justified samples and
+     * the DSP stages preserve that scale, while only the AGC renormalizes
+     * (its adaptive gain targets a fixed level). The ESP32 reads the I2S
+     * slots as Q31 (sample << 16), so without an explicit shift every
+     * pre-AGC stage streams 256x too quiet, leaving only ~6 effective bits
+     * after the 16-bit conversion. Shift the pre-AGC stages up by 8 bits
+     * (s24 -> Q31) so all stages present true Q31 on the wire. */
     for (int j=0; j<frame_count; j++) {
         /* ASR output is first */
         // tmp[j][0] = *(tmpptr+j);                    // proc 0, AGC audio
@@ -170,16 +179,16 @@ int audio_pipeline_output(void *output_app_data,
         enum e_pipeline_processing_stages channel_0_stage = configuration_get_channel_0_stage();
         if (channel_0_stage == PIPELINE_STAGE_NONE) {
             // Original microphone audio
-            tmp[j][0] = *(tmpptr + j + (4 * frame_count));
+            tmp[j][0] = *(tmpptr + j + (4 * frame_count)) << 8;
         } else if (channel_0_stage == PIPELINE_STAGE_AEC) {
             // AEC cancelled audio
-            tmp[j][0] = *(tmpptr + j + (1 * frame_count)); 
+            tmp[j][0] = *(tmpptr + j + (1 * frame_count)) << 8;
         } else if (channel_0_stage == PIPELINE_STAGE_IC) {
             // AEC+IC processed audio
-            tmp[j][0] = *(tmpptr + j + (2 * frame_count));
+            tmp[j][0] = *(tmpptr + j + (2 * frame_count)) << 8;
         } else if (channel_0_stage == PIPELINE_STAGE_NS) {
             // AEC+IC+NS processed audio
-            tmp[j][0] = *(tmpptr + j + (3 * frame_count));
+            tmp[j][0] = *(tmpptr + j + (3 * frame_count)) << 8;
         } else if (channel_0_stage == PIPELINE_STAGE_AGC) {
             // AEC+IC+NS+AGC processed audio
             tmp[j][0] = *(tmpptr + j);
@@ -188,16 +197,16 @@ int audio_pipeline_output(void *output_app_data,
         enum e_pipeline_processing_stages channel_1_stage = configuration_get_channel_1_stage();
         if (channel_1_stage == PIPELINE_STAGE_NONE) {
             // Original microphone audio
-            tmp[j][1] = *(tmpptr + j + (5 * frame_count));
+            tmp[j][1] = *(tmpptr + j + (5 * frame_count)) << 8;
         } else if (channel_1_stage == PIPELINE_STAGE_AEC) {
             // AEC cancelled audio
-            tmp[j][1] = *(tmpptr + j + (1 * frame_count)); 
+            tmp[j][1] = *(tmpptr + j + (1 * frame_count)) << 8;
         } else if (channel_1_stage == PIPELINE_STAGE_IC) {
             // AEC+IC processed audio
-            tmp[j][1] = *(tmpptr + j + (2 * frame_count));
+            tmp[j][1] = *(tmpptr + j + (2 * frame_count)) << 8;
         } else if (channel_1_stage == PIPELINE_STAGE_NS) {
             // AEC+IC+NS processed audio
-            tmp[j][1] = *(tmpptr + j + (3 * frame_count));
+            tmp[j][1] = *(tmpptr + j + (3 * frame_count)) << 8;
         } else if (channel_1_stage == PIPELINE_STAGE_AGC) {
             // AEC+IC+NS+AGC processed audio
             tmp[j][1] = *(tmpptr + j);
